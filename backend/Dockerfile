@@ -3,7 +3,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o server .
+RUN CGO_ENABLED=0 GOOS=linux GOMAXPROCS=1 GOMEMLIMIT=256MiB go build -p=1 -trimpath -ldflags="-s -w -buildid=" -o server .
 
 FROM alpine:3.22
 WORKDIR /app
