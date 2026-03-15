@@ -14,8 +14,6 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       DB_SSLMODE: ${DB_SSLMODE}
-    ports:
-      - "8080:8080"
     restart: unless-stopped
 
   frontend:
@@ -25,8 +23,6 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL}
     container_name: vmcrud-frontend
-    ports:
-      - "80:80"
     depends_on:
       - backend
     restart: unless-stopped
