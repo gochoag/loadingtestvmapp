@@ -3,8 +3,16 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"backend/controllers"
+	"backend/middleware"
+	"backend/models"
+	"backend/repositories"
+	"backend/services"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -13,28 +21,38 @@ import (
 	"gorm.io/gorm"
 )
 
-type Product struct {
-	ID          uint    `json:"id" gorm:"primaryKey"`
-	Name        string  `json:"name" gorm:"size:120;not null"`
-	Description string  `json:"description" gorm:"size:500"`
-	Price       float64 `json:"price" gorm:"not null"`
-	Stock       int     `json:"stock" gorm:"not null"`
-}
-
-type ProductInput struct {
-	Name        string  `json:"name" binding:"required,max=120"`
-	Description string  `json:"description" binding:"max=500"`
-	Price       float64 `json:"price" binding:"required,gte=0"`
-	Stock       int     `json:"stock" binding:"required,gte=0"`
-}
-
 func main() {
 	loadEnvironment()
 	db := setupDatabase()
 
-	if err := db.AutoMigrate(&Product{}); err != nil {
+	if err := db.AutoMigrate(
+		&models.Product{},
+		&models.Permission{},
+		&models.Role{},
+		&models.User{},
+	); err != nil {
 		log.Fatalf("error en migración: %v", err)
 	}
+
+	productRepository := repositories.NewProductRepository(db)
+	productService := services.NewProductService(productRepository)
+	productController := controllers.NewProductController(productService)
+	permissionRepository := repositories.NewPermissionRepository(db)
+	permissionService := services.NewPermissionService(permissionRepository)
+	permissionController := controllers.NewPermissionController(permissionService)
+	roleRepository := repositories.NewRoleRepository(db)
+	roleService := services.NewRoleService(roleRepository, permissionRepository)
+	roleController := controllers.NewRoleController(roleService)
+	userRepository := repositories.NewUserRepository(db)
+	userService := services.NewUserService(userRepository, roleRepository)
+	ensureSeedUser(userService)
+	jwtTTL := time.Duration(getEnvAsInt("JWT_TTL_MINUTES", 1440)) * time.Minute
+	jwtService := services.NewJWTService(
+		getEnv("JWT_SECRET", "change-this-secret-in-production"),
+		getEnv("JWT_ISSUER", "loadingtestvmapp"),
+		jwtTTL,
+	)
+	userController := controllers.NewUserController(userService, jwtService)
 
 	router := gin.Default()
 
@@ -42,92 +60,45 @@ func main() {
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{allowedOrigin},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		AllowCredentials: true,
 	}))
 
 	api := router.Group("/api")
 	{
-		api.GET("/health", func(ctx *gin.Context) {
-			ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
-		})
+		api.GET("/health", productController.Health)
+		api.POST("/auth/login", userController.Login)
 
-		api.GET("/products", func(ctx *gin.Context) {
-			var products []Product
-			if err := db.Order("id desc").Find(&products).Error; err != nil {
-				ctx.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudieron obtener productos"})
-				return
-			}
-			ctx.JSON(http.StatusOK, products)
-		})
+		bootstrapProtected := api.Group("")
+		bootstrapProtected.Use(middleware.BootstrapOrAuth(jwtService, userService))
+		{
+			bootstrapProtected.GET("/products", middleware.RequireAnyPermission(userService, "ADM_R_PRODUCTO", "VEN_R_PRODUCTO"), productController.GetProducts)
+			bootstrapProtected.GET("/products/:id", middleware.RequireAnyPermission(userService, "ADM_R_PRODUCTO", "VEN_R_PRODUCTO"), productController.GetProduct)
+			bootstrapProtected.POST("/products", middleware.RequireAnyPermission(userService, "ADM_C_PRODUCTO", "VEN_C_PRODUCTO"), productController.CreateProduct)
+			bootstrapProtected.PUT("/products/:id", middleware.RequireAnyPermission(userService, "ADM_U_PRODUCTO", "VEN_U_PRODUCTO"), productController.UpdateProduct)
+			bootstrapProtected.DELETE("/products/:id", middleware.RequireAnyPermission(userService, "ADM_D_PRODUCTO"), productController.DeleteProduct)
+			bootstrapProtected.GET("/permissions", middleware.RequireAnyPermission(userService, "ADM_R_PERMISO"), permissionController.GetPermissions)
+			bootstrapProtected.GET("/permissions/:id", middleware.RequireAnyPermission(userService, "ADM_R_PERMISO"), permissionController.GetPermission)
+			bootstrapProtected.POST("/permissions", middleware.RequireAnyPermission(userService, "ADM_C_PERMISO"), permissionController.CreatePermission)
+			bootstrapProtected.PUT("/permissions/:id", middleware.RequireAnyPermission(userService, "ADM_U_PERMISO"), permissionController.UpdatePermission)
+			bootstrapProtected.DELETE("/permissions/:id", middleware.RequireAnyPermission(userService, "ADM_D_PERMISO"), permissionController.DeletePermission)
+			bootstrapProtected.GET("/roles", middleware.RequireAnyPermission(userService, "ADM_R_ROL"), roleController.GetRoles)
+			bootstrapProtected.GET("/roles/:id", middleware.RequireAnyPermission(userService, "ADM_R_ROL"), roleController.GetRole)
+			bootstrapProtected.POST("/roles", middleware.RequireAnyPermission(userService, "ADM_C_ROL"), roleController.CreateRole)
+			bootstrapProtected.PUT("/roles/:id", middleware.RequireAnyPermission(userService, "ADM_U_ROL"), roleController.UpdateRole)
+			bootstrapProtected.DELETE("/roles/:id", middleware.RequireAnyPermission(userService, "ADM_D_ROL"), roleController.DeleteRole)
+			bootstrapProtected.GET("/users", middleware.RequireAnyPermission(userService, "ADM_R_USUARIO"), userController.GetUsers)
+			bootstrapProtected.GET("/users/:id", middleware.RequireAnyPermission(userService, "ADM_R_USUARIO"), userController.GetUser)
+			bootstrapProtected.POST("/users", middleware.RequireAnyPermission(userService, "ADM_C_USUARIO"), userController.CreateUser)
+			bootstrapProtected.PUT("/users/:id", middleware.RequireAnyPermission(userService, "ADM_U_USUARIO"), userController.UpdateUser)
+			bootstrapProtected.DELETE("/users/:id", middleware.RequireAnyPermission(userService, "ADM_D_USUARIO"), userController.DeleteUser)
+		}
 
-		api.GET("/products/:id", func(ctx *gin.Context) {
-			var product Product
-			if err := db.First(&product, ctx.Param("id")).Error; err != nil {
-				ctx.JSON(http.StatusNotFound, gin.H{"error": "producto no encontrado"})
-				return
-			}
-			ctx.JSON(http.StatusOK, product)
-		})
-
-		api.POST("/products", func(ctx *gin.Context) {
-			var input ProductInput
-			if err := ctx.ShouldBindJSON(&input); err != nil {
-				ctx.JSON(http.StatusBadRequest, gin.H{"error": "datos inválidos"})
-				return
-			}
-
-			product := Product{
-				Name:        input.Name,
-				Description: input.Description,
-				Price:       input.Price,
-				Stock:       input.Stock,
-			}
-
-			if err := db.Create(&product).Error; err != nil {
-				ctx.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo crear producto"})
-				return
-			}
-			ctx.JSON(http.StatusCreated, product)
-		})
-
-		api.PUT("/products/:id", func(ctx *gin.Context) {
-			var product Product
-			if err := db.First(&product, ctx.Param("id")).Error; err != nil {
-				ctx.JSON(http.StatusNotFound, gin.H{"error": "producto no encontrado"})
-				return
-			}
-
-			var input ProductInput
-			if err := ctx.ShouldBindJSON(&input); err != nil {
-				ctx.JSON(http.StatusBadRequest, gin.H{"error": "datos inválidos"})
-				return
-			}
-
-			product.Name = input.Name
-			product.Description = input.Description
-			product.Price = input.Price
-			product.Stock = input.Stock
-
-			if err := db.Save(&product).Error; err != nil {
-				ctx.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo actualizar producto"})
-				return
-			}
-			ctx.JSON(http.StatusOK, product)
-		})
-
-		api.DELETE("/products/:id", func(ctx *gin.Context) {
-			result := db.Delete(&Product{}, ctx.Param("id"))
-			if result.Error != nil {
-				ctx.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo eliminar producto"})
-				return
-			}
-			if result.RowsAffected == 0 {
-				ctx.JSON(http.StatusNotFound, gin.H{"error": "producto no encontrado"})
-				return
-			}
-			ctx.Status(http.StatusNoContent)
-		})
+		authOnly := api.Group("")
+		authOnly.Use(middleware.AuthRequired(jwtService, userService))
+		{
+			authOnly.GET("/auth/me", userController.Me)
+		}
 	}
 
 	port := getEnv("SERVER_PORT", "8080")
@@ -138,7 +109,18 @@ func main() {
 
 func loadEnvironment() {
 	appEnv := getEnv("APP_ENV", "development")
-	_ = godotenv.Load(".env." + appEnv)
+	envFiles := []string{".env." + appEnv}
+
+	switch strings.ToLower(appEnv) {
+	case "development":
+		envFiles = append(envFiles, ".env.dev")
+	case "dev":
+		envFiles = append(envFiles, ".env.development")
+	}
+
+	for _, envFile := range envFiles {
+		_ = godotenv.Load(envFile)
+	}
 	_ = godotenv.Load()
 }
 
@@ -168,4 +150,50 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func getEnvAsInt(key string, fallback int) int {
+	value := getEnv(key, "")
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+func getEnvAsBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(strings.ToLower(getEnv(key, "")))
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	case "":
+		return fallback
+	default:
+		return fallback
+	}
+}
+
+func ensureSeedUser(userService services.UserService) {
+	config := services.SeedUserConfig{
+		Enabled:  getEnvAsBool("SEED_USER_ENABLED", false),
+		Name:     getEnv("SEED_USER_NAME", ""),
+		Email:    getEnv("SEED_USER_EMAIL", ""),
+		Password: getEnv("SEED_USER_PASSWORD", ""),
+		RoleName: getEnv("SEED_USER_ROLE", "Admin"),
+	}
+
+	if !config.Enabled {
+		return
+	}
+
+	if err := userService.EnsureSeedUser(config); err != nil {
+		log.Fatalf("error creando usuario semilla: %v", err)
+	}
 }

@@ -1,8 +1,30 @@
+:root {
+  color-scheme: light;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --surface: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
 body {
+  min-height: 100vh;
   margin: 0;
-  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  background: #f1f5f9;
-  color: #0f172a;
+  font-family: "Segoe UI Variable", Aptos, "Trebuchet MS", sans-serif;
+  color: var(--ink);
+  background: linear-gradient(180deg, #fffaf5 0%, #eef4f8 100%);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
 }
 
 #root {
