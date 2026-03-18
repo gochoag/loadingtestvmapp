@@ -9,11 +9,15 @@ import (
 	"time"
 
 	"backend/controllers"
+	"backend/graph"
+	"backend/graph/generated"
 	"backend/middleware"
 	"backend/models"
 	"backend/repositories"
 	"backend/services"
 
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -53,12 +57,25 @@ func main() {
 		jwtTTL,
 	)
 	userController := controllers.NewUserController(userService, jwtService)
+	graphQLServer := handler.NewDefaultServer(
+		generated.NewExecutableSchema(
+			generated.Config{
+				Resolvers: &graph.Resolver{
+					JWTService:        jwtService,
+					PermissionService: permissionService,
+					ProductService:    productService,
+					RoleService:       roleService,
+					UserService:       userService,
+				},
+			},
+		),
+	)
 
 	router := gin.Default()
 
-	allowedOrigin := getEnv("ALLOWED_ORIGIN", "http://localhost:5173")
+	allowedOrigins := getAllowedOrigins()
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{allowedOrigin},
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		AllowCredentials: true,
@@ -68,30 +85,42 @@ func main() {
 	{
 		api.GET("/health", productController.Health)
 		api.POST("/auth/login", userController.Login)
+		api.GET("/playground", func(ctx *gin.Context) {
+			playground.Handler("Loading Test GraphQL", "/api/graphql").ServeHTTP(ctx.Writer, ctx.Request)
+		})
+		api.POST("/graphql", func(ctx *gin.Context) {
+			request, err := graph.AttachCurrentUserFromRequest(ctx.Request, jwtService, userService)
+			if err != nil {
+				ctx.AbortWithStatusJSON(401, gin.H{"error": "token inválido o expirado"})
+				return
+			}
 
-		bootstrapProtected := api.Group("")
-		bootstrapProtected.Use(middleware.BootstrapOrAuth(jwtService, userService))
+			graphQLServer.ServeHTTP(ctx.Writer, request)
+		})
+
+		protected := api.Group("")
+		protected.Use(middleware.AuthRequired(jwtService, userService))
 		{
-			bootstrapProtected.GET("/products", middleware.RequireAnyPermission(userService, "ADM_R_PRODUCTO", "VEN_R_PRODUCTO"), productController.GetProducts)
-			bootstrapProtected.GET("/products/:id", middleware.RequireAnyPermission(userService, "ADM_R_PRODUCTO", "VEN_R_PRODUCTO"), productController.GetProduct)
-			bootstrapProtected.POST("/products", middleware.RequireAnyPermission(userService, "ADM_C_PRODUCTO", "VEN_C_PRODUCTO"), productController.CreateProduct)
-			bootstrapProtected.PUT("/products/:id", middleware.RequireAnyPermission(userService, "ADM_U_PRODUCTO", "VEN_U_PRODUCTO"), productController.UpdateProduct)
-			bootstrapProtected.DELETE("/products/:id", middleware.RequireAnyPermission(userService, "ADM_D_PRODUCTO"), productController.DeleteProduct)
-			bootstrapProtected.GET("/permissions", middleware.RequireAnyPermission(userService, "ADM_R_PERMISO"), permissionController.GetPermissions)
-			bootstrapProtected.GET("/permissions/:id", middleware.RequireAnyPermission(userService, "ADM_R_PERMISO"), permissionController.GetPermission)
-			bootstrapProtected.POST("/permissions", middleware.RequireAnyPermission(userService, "ADM_C_PERMISO"), permissionController.CreatePermission)
-			bootstrapProtected.PUT("/permissions/:id", middleware.RequireAnyPermission(userService, "ADM_U_PERMISO"), permissionController.UpdatePermission)
-			bootstrapProtected.DELETE("/permissions/:id", middleware.RequireAnyPermission(userService, "ADM_D_PERMISO"), permissionController.DeletePermission)
-			bootstrapProtected.GET("/roles", middleware.RequireAnyPermission(userService, "ADM_R_ROL"), roleController.GetRoles)
-			bootstrapProtected.GET("/roles/:id", middleware.RequireAnyPermission(userService, "ADM_R_ROL"), roleController.GetRole)
-			bootstrapProtected.POST("/roles", middleware.RequireAnyPermission(userService, "ADM_C_ROL"), roleController.CreateRole)
-			bootstrapProtected.PUT("/roles/:id", middleware.RequireAnyPermission(userService, "ADM_U_ROL"), roleController.UpdateRole)
-			bootstrapProtected.DELETE("/roles/:id", middleware.RequireAnyPermission(userService, "ADM_D_ROL"), roleController.DeleteRole)
-			bootstrapProtected.GET("/users", middleware.RequireAnyPermission(userService, "ADM_R_USUARIO"), userController.GetUsers)
-			bootstrapProtected.GET("/users/:id", middleware.RequireAnyPermission(userService, "ADM_R_USUARIO"), userController.GetUser)
-			bootstrapProtected.POST("/users", middleware.RequireAnyPermission(userService, "ADM_C_USUARIO"), userController.CreateUser)
-			bootstrapProtected.PUT("/users/:id", middleware.RequireAnyPermission(userService, "ADM_U_USUARIO"), userController.UpdateUser)
-			bootstrapProtected.DELETE("/users/:id", middleware.RequireAnyPermission(userService, "ADM_D_USUARIO"), userController.DeleteUser)
+			protected.GET("/products", middleware.RequireAnyPermission("ADM_R_PRODUCTO", "VEN_R_PRODUCTO"), productController.GetProducts)
+			protected.GET("/products/:id", middleware.RequireAnyPermission("ADM_R_PRODUCTO", "VEN_R_PRODUCTO"), productController.GetProduct)
+			protected.POST("/products", middleware.RequireAnyPermission("ADM_C_PRODUCTO", "VEN_C_PRODUCTO"), productController.CreateProduct)
+			protected.PUT("/products/:id", middleware.RequireAnyPermission("ADM_U_PRODUCTO", "VEN_U_PRODUCTO"), productController.UpdateProduct)
+			protected.DELETE("/products/:id", middleware.RequireAnyPermission("ADM_D_PRODUCTO"), productController.DeleteProduct)
+			protected.GET("/permissions", middleware.RequireAnyPermission("ADM_R_PERMISO"), permissionController.GetPermissions)
+			protected.GET("/permissions/:id", middleware.RequireAnyPermission("ADM_R_PERMISO"), permissionController.GetPermission)
+			protected.POST("/permissions", middleware.RequireAnyPermission("ADM_C_PERMISO"), permissionController.CreatePermission)
+			protected.PUT("/permissions/:id", middleware.RequireAnyPermission("ADM_U_PERMISO"), permissionController.UpdatePermission)
+			protected.DELETE("/permissions/:id", middleware.RequireAnyPermission("ADM_D_PERMISO"), permissionController.DeletePermission)
+			protected.GET("/roles", middleware.RequireAnyPermission("ADM_R_ROL"), roleController.GetRoles)
+			protected.GET("/roles/:id", middleware.RequireAnyPermission("ADM_R_ROL"), roleController.GetRole)
+			protected.POST("/roles", middleware.RequireAnyPermission("ADM_C_ROL"), roleController.CreateRole)
+			protected.PUT("/roles/:id", middleware.RequireAnyPermission("ADM_U_ROL"), roleController.UpdateRole)
+			protected.DELETE("/roles/:id", middleware.RequireAnyPermission("ADM_D_ROL"), roleController.DeleteRole)
+			protected.GET("/users", middleware.RequireAnyPermission("ADM_R_USUARIO"), userController.GetUsers)
+			protected.GET("/users/:id", middleware.RequireAnyPermission("ADM_R_USUARIO"), userController.GetUser)
+			protected.POST("/users", middleware.RequireAnyPermission("ADM_C_USUARIO"), userController.CreateUser)
+			protected.PUT("/users/:id", middleware.RequireAnyPermission("ADM_U_USUARIO"), userController.UpdateUser)
+			protected.DELETE("/users/:id", middleware.RequireAnyPermission("ADM_D_USUARIO"), userController.DeleteUser)
 		}
 
 		authOnly := api.Group("")
@@ -150,6 +179,27 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func getAllowedOrigins() []string {
+	rawValue := getEnv("ALLOWED_ORIGIN", "http://localhost:5173,http://127.0.0.1:5173")
+	parts := strings.Split(rawValue, ",")
+	origins := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		origin := strings.TrimSpace(part)
+		if origin == "" {
+			continue
+		}
+
+		origins = append(origins, origin)
+	}
+
+	if len(origins) == 0 {
+		return []string{"http://localhost:5173", "http://127.0.0.1:5173"}
+	}
+
+	return origins
 }
 
 func getEnvAsInt(key string, fallback int) int {

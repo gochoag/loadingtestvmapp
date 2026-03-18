@@ -4,3 +4,5 @@ export const INITIAL_PRODUCT_FORM = {
   price: '',
   stock: '',
 }
+
+export const PRODUCTS_PAGE_SIZE = 6

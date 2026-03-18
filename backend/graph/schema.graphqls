@@ -1,0 +1,99 @@
+type Query {
+  users: [User!]!
+  user(id: ID!): User
+  roles: [Role!]!
+  role(id: ID!): Role
+  permissions: [Permission!]!
+  permission(id: ID!): Permission
+  me: User!
+  products: [Product!]!
+  product(id: ID!): Product
+}
+
+type Mutation {
+  login(input: LoginCredentialsInput!): AuthPayload!
+  createUser(input: UserCreateInput!): User!
+  updateUser(id: ID!, input: UserUpdateInput!): User!
+  deleteUser(id: ID!): Boolean!
+  createRole(input: RoleMutationInput!): Role!
+  updateRole(id: ID!, input: RoleMutationInput!): Role!
+  deleteRole(id: ID!): Boolean!
+  createPermission(input: PermissionMutationInput!): Permission!
+  updatePermission(id: ID!, input: PermissionMutationInput!): Permission!
+  deletePermission(id: ID!): Boolean!
+  createProduct(input: ProductMutationInput!): Product!
+  updateProduct(id: ID!, input: ProductMutationInput!): Product!
+  deleteProduct(id: ID!): Boolean!
+}
+
+type AuthPayload {
+  token: String!
+  expiresAt: String!
+  user: User!
+}
+
+input LoginCredentialsInput {
+  email: String!
+  password: String!
+}
+
+type Product {
+  id: ID!
+  name: String!
+  description: String!
+  price: Float!
+  stock: Int!
+}
+
+input ProductMutationInput {
+  name: String!
+  description: String!
+  price: Float!
+  stock: Int!
+}
+
+input PermissionMutationInput {
+  name: String!
+  description: String!
+}
+
+input RoleMutationInput {
+  name: String!
+  description: String!
+  permissionIds: [ID!]!
+}
+
+input UserCreateInput {
+  name: String!
+  email: String!
+  password: String!
+  roleId: ID!
+}
+
+input UserUpdateInput {
+  name: String!
+  email: String!
+  password: String
+  roleId: ID!
+}
+
+type Permission {
+  id: ID!
+  name: String!
+  description: String!
+}
+
+type Role {
+  id: ID!
+  name: String!
+  description: String!
+  permissions: [Permission!]!
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  roleId: ID!
+  role: Role!
+}

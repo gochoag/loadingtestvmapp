@@ -1,158 +1,105 @@
-import { useMemo, useState } from 'react'
-import './App.css'
+import { useMemo } from 'react'
 import LoginScreen from './features/auth/components/LoginScreen'
-import AppSidebar from './features/dashboard/components/AppSidebar'
-import AppTopbar from './features/dashboard/components/AppTopbar'
-import OverviewSection from './features/dashboard/components/OverviewSection'
-import ProductsSection from './features/products/components/ProductsSection'
-import InventorySection from './features/inventory/components/InventorySection'
-import ReportsSection from './features/reports/components/ReportsSection'
+import DashboardShell from './features/dashboard/components/DashboardShell'
+import DashboardSections from './features/dashboard/components/DashboardSections'
+import { useProductMetrics } from './features/products/hooks/useProductMetrics'
+import { useProducts } from './features/products/hooks/useProducts'
 import { API_URL } from './shared/config/api'
 import { SECTION_META } from './shared/constants/navigation'
-import { useProductMetrics } from './hooks/useProductMetrics'
-import { useProducts } from './hooks/useProducts'
-import { createUserFromEmail } from './utils/auth'
 import { createCurrencyFormatter, formatMoney as formatCurrency } from './utils/formatters'
+import { useAuthSession } from './features/auth/hooks/useAuthSession'
+import { useDashboardLayout } from './features/dashboard/hooks/useDashboardLayout'
+import ToastStack from './shared/components/ToastStack'
+import { useToasts } from './shared/hooks/useToasts'
 
 function App() {
   const currencyFormatter = useMemo(() => createCurrencyFormatter(), [])
-
-  const [user, setUser] = useState(null)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [activeSection, setActiveSection] = useState('overview')
-  const [loginForm, setLoginForm] = useState({
-    email: '',
-    password: '',
-  })
-  const [loginError, setLoginError] = useState('')
-  const selectProductsSection = () => {
-    setActiveSection('products')
-  }
-
+  const { toasts, pushToast, dismissToast } = useToasts()
   const {
-    products,
-    form,
-    editingId,
-    loading,
-    submitting,
-    error,
-    resetForm,
-    onFormChange,
-    onSubmit,
-    onEdit,
-    onDelete,
-  } = useProducts({
+    sidebarOpen,
+    activeSection,
+    onSelectSection,
+    onToggleSidebar,
+    onCloseSidebar,
+    selectProductsSection,
+    resetLayout,
+  } = useDashboardLayout()
+  const {
+    token,
+    user,
+    loginForm,
+    loginError,
+    authLoading,
+    onLoginChange,
+    onLoginSubmit,
+    onLogout,
+  } = useAuthSession({
+    apiUrl: API_URL,
+    onLoginSuccess: resetLayout,
+    onLogoutSuccess: resetLayout,
+    onNotify: pushToast,
+  })
+
+  const productsState = useProducts({
     apiUrl: API_URL,
     user,
+    token,
     onProductSaved: selectProductsSection,
+    onNotify: pushToast,
   })
-  const metrics = useProductMetrics(products)
+  const metrics = useProductMetrics(productsState.products)
   const currentSection = SECTION_META[activeSection]
   const formatMoney = (value) => formatCurrency(currencyFormatter, value)
 
-  const onLoginChange = (event) => {
-    const { name, value } = event.target
-    setLoginForm((previous) => ({ ...previous, [name]: value }))
-  }
-
-  const onLoginSubmit = (event) => {
-    event.preventDefault()
-
-    if (!loginForm.email.trim() || !loginForm.password.trim()) {
-      setLoginError('Ingresa correo y contrasena para continuar.')
-      return
-    }
-
-    setLoginError('')
-    setUser(createUserFromEmail(loginForm.email))
-    setSidebarOpen(true)
-    setActiveSection('overview')
-  }
-
-  const onLogout = () => {
-    setUser(null)
-    setLoginForm({
-      email: '',
-      password: '',
-    })
-    setSidebarOpen(true)
-    setActiveSection('overview')
-  }
-
-  const selectSection = (sectionId) => {
-    setActiveSection(sectionId)
-    if (window.innerWidth <= 900) {
-      setSidebarOpen(false)
-    }
+  if (authLoading && !user) {
+    return (
+      <>
+        <main className="flex min-h-screen items-center justify-center bg-slate-100 px-6 text-slate-600 antialiased">
+          <div className="border border-slate-200 bg-white px-6 py-5 text-sm shadow-sm">
+            Verificando sesion...
+          </div>
+        </main>
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      </>
+    )
   }
 
   if (!user) {
     return (
-      <LoginScreen
-        loginForm={loginForm}
-        loginError={loginError}
-        onLoginChange={onLoginChange}
-        onLoginSubmit={onLoginSubmit}
-      />
+      <>
+        <LoginScreen
+          loginForm={loginForm}
+          loginError={loginError}
+          onLoginChange={onLoginChange}
+          onLoginSubmit={onLoginSubmit}
+        />
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      </>
     )
   }
 
   return (
-    <div className={`app-shell${sidebarOpen ? '' : ' sidebar-closed'}`}>
-      <AppSidebar
+    <>
+      <DashboardShell
         activeSection={activeSection}
         sidebarOpen={sidebarOpen}
         user={user}
-        onSelectSection={selectSection}
-      />
-
-      <button
-        type="button"
-        className={`sidebar-backdrop${sidebarOpen ? ' visible' : ''}`}
-        aria-label="Cerrar menu"
-        onClick={() => setSidebarOpen(false)}
-      />
-
-      <div className="app-layout">
-        <AppTopbar
-          currentSection={currentSection}
-          user={user}
-          onToggleSidebar={() => setSidebarOpen((previous) => !previous)}
-          onLogout={onLogout}
+        currentSection={currentSection}
+        onSelectSection={onSelectSection}
+        onToggleSidebar={onToggleSidebar}
+        onCloseSidebar={onCloseSidebar}
+        onLogout={onLogout}
+      >
+        <DashboardSections
+          activeSection={activeSection}
+          metrics={metrics}
+          productsState={productsState}
+          formatMoney={formatMoney}
+          onOpenProducts={selectProductsSection}
         />
-
-        <main className="main-content">
-          {activeSection === 'overview' && (
-            <OverviewSection
-              metrics={metrics}
-              loading={loading}
-              formatMoney={formatMoney}
-              onOpenProducts={selectProductsSection}
-            />
-          )}
-          {activeSection === 'products' && (
-            <ProductsSection
-              editingId={editingId}
-              form={form}
-              products={products}
-              loading={loading}
-              submitting={submitting}
-              error={error}
-              formatMoney={formatMoney}
-              onFormChange={onFormChange}
-              onSubmit={onSubmit}
-              onResetForm={resetForm}
-              onEdit={onEdit}
-              onDelete={onDelete}
-            />
-          )}
-          {activeSection === 'inventory' && <InventorySection metrics={metrics} />}
-          {activeSection === 'reports' && (
-            <ReportsSection metrics={metrics} formatMoney={formatMoney} />
-          )}
-        </main>
-      </div>
-    </div>
+      </DashboardShell>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+    </>
   )
 }
 

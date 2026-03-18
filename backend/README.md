@@ -144,7 +144,7 @@ Requiere JWT.
 }
 ```
 
-Nota: mientras no exista ningún usuario, el backend permite el bootstrap inicial sin token para permisos, roles, usuarios y productos. Después del primer usuario, todas esas rutas requieren JWT.
+Nota: estas rutas siempre requieren JWT y permisos del rol.
 
 ### `PUT {{baseUrl}}/users/:id`
 
@@ -204,4 +204,4 @@ Sin body. Respuesta esperada: `204 No Content`.
 - Si envías un body inválido, el backend responde `400`.
 - Si el `id` no existe, normalmente responde `404`.
 - Si falla algo interno, responde `500`.
-- Todas las rutas, excepto `GET /health` y `POST /auth/login`, requieren JWT una vez exista al menos un usuario.
+- Todas las rutas, excepto `GET /health` y `POST /auth/login`, requieren JWT.

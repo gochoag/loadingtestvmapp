@@ -17,23 +17,6 @@ func AuthRequired(jwtService services.JWTService, userService services.UserServi
 	}
 }
 
-func BootstrapOrAuth(jwtService services.JWTService, userService services.UserService) gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		hasUsers, err := userService.HasConfiguredUsers()
-		if err != nil {
-			ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "no se pudo validar el estado de autenticación"})
-			return
-		}
-
-		if !hasUsers {
-			ctx.Next()
-			return
-		}
-
-		authenticateRequest(ctx, jwtService, userService)
-	}
-}
-
 func CurrentUser(ctx *gin.Context) (models.User, bool) {
 	value, exists := ctx.Get(currentUserContextKey)
 	if !exists {
@@ -44,7 +27,7 @@ func CurrentUser(ctx *gin.Context) (models.User, bool) {
 	return user, ok
 }
 
-func RequireAnyPermission(userService services.UserService, permissionNames ...string) gin.HandlerFunc {
+func RequireAnyPermission(permissionNames ...string) gin.HandlerFunc {
 	required := make([]string, 0, len(permissionNames))
 	for _, permissionName := range permissionNames {
 		permissionName = strings.TrimSpace(permissionName)
@@ -55,17 +38,6 @@ func RequireAnyPermission(userService services.UserService, permissionNames ...s
 	}
 
 	return func(ctx *gin.Context) {
-		hasUsers, err := userService.HasConfiguredUsers()
-		if err != nil {
-			ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "no se pudo validar permisos"})
-			return
-		}
-
-		if !hasUsers {
-			ctx.Next()
-			return
-		}
-
 		user, ok := CurrentUser(ctx)
 		if !ok {
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "no autorizado"})

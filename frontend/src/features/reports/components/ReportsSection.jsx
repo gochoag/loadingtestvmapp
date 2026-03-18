@@ -2,24 +2,36 @@ import PanelHeader from '../../../components/PanelHeader'
 
 function ReportsSection({ metrics, formatMoney }) {
   return (
-    <div className="content-grid">
-      <section className="panel-card">
+    <div className="grid gap-5">
+      <section className="border border-slate-200 bg-white p-5 shadow-sm">
         <PanelHeader
           title="Indicadores del panel"
           description="Resumen ejecutivo generado desde los datos actuales."
         />
-        <div className="report-grid">
-          <article className="report-card">
-            <span>Ticket promedio</span>
-            <strong>{formatMoney(metrics.averagePrice)}</strong>
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <article className="border border-slate-200 bg-slate-50 px-5 py-5">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Ticket promedio
+            </span>
+            <strong className="mt-2 block text-2xl font-semibold tracking-tight text-slate-950">
+              {formatMoney(metrics.averagePrice)}
+            </strong>
           </article>
-          <article className="report-card">
-            <span>Cobertura media</span>
-            <strong>{`${metrics.averageCoverage} uds`}</strong>
+          <article className="border border-slate-200 bg-slate-50 px-5 py-5">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Cobertura media
+            </span>
+            <strong className="mt-2 block text-2xl font-semibold tracking-tight text-slate-950">
+              {`${metrics.averageCoverage} uds`}
+            </strong>
           </article>
-          <article className="report-card">
-            <span>Valor del catalogo</span>
-            <strong>{formatMoney(metrics.totalValue)}</strong>
+          <article className="border border-slate-200 bg-slate-50 px-5 py-5">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Valor del catalogo
+            </span>
+            <strong className="mt-2 block text-2xl font-semibold tracking-tight text-slate-950">
+              {formatMoney(metrics.totalValue)}
+            </strong>
           </article>
         </div>
       </section>
